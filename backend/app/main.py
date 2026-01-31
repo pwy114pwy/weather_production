@@ -107,16 +107,16 @@ def get_weather_model():
             try:
                 import joblib
                 import os
-                
+
                 # 构建归一化器文件路径
                 # 首先尝试从训练时保存的处理数据路径加载
                 processed_data_path = "../../data/processed/processed_data_scaler.pkl"  # 相对于backend/app的路径
-                
+
                 # 如果上述路径不存在，尝试其他可能的路径
                 if not os.path.exists(processed_data_path):
                     processed_data_path = os.path.join(os.path.dirname(os.path.dirname(
                         os.path.dirname(os.path.abspath(__file__)))), "data", "processed", "processed_data_scaler.pkl")
-                
+
                 if os.path.exists(processed_data_path):
                     scaler = joblib.load(processed_data_path)
                     model_instance.set_scaler(scaler)
@@ -265,8 +265,9 @@ def predict_weather(weather_data: WeatherData,
             if i < len(future_weather):
                 # 使用原始序列和未来预测数据构建新的序列
                 # 为了预测第i天的风险，我们使用最近的SEQ_LENGTH个数据点
-                extended_sequence = np.vstack([base_sequence, future_weather[:i+1]])
-                
+                extended_sequence = np.vstack(
+                    [base_sequence, future_weather[:i+1]])
+
                 # 从扩展序列中提取最近的SEQ_LENGTH个数据点
                 if len(extended_sequence) >= settings.SEQ_LENGTH:
                     prediction_sequence = extended_sequence[-settings.SEQ_LENGTH:]
@@ -274,7 +275,8 @@ def predict_weather(weather_data: WeatherData,
                     # 如果扩展序列不够长，填充重复数据
                     prediction_sequence = extended_sequence
                     while len(prediction_sequence) < settings.SEQ_LENGTH:
-                        prediction_sequence = np.vstack([prediction_sequence, prediction_sequence[-1:]])
+                        prediction_sequence = np.vstack(
+                            [prediction_sequence, prediction_sequence[-1:]])
             else:
                 # 防止索引越界
                 extended_sequence = np.vstack([base_sequence, future_weather])
@@ -283,7 +285,8 @@ def predict_weather(weather_data: WeatherData,
                 else:
                     prediction_sequence = extended_sequence
                     while len(prediction_sequence) < settings.SEQ_LENGTH:
-                        prediction_sequence = np.vstack([prediction_sequence, prediction_sequence[-1:]])
+                        prediction_sequence = np.vstack(
+                            [prediction_sequence, prediction_sequence[-1:]])
 
             # 预测风险
             prediction_sequence_reshaped = prediction_sequence.reshape(

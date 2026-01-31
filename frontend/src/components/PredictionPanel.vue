@@ -45,7 +45,7 @@
         <!-- 未来7天预测趋势图 -->
         <div class="prediction-chart">
           <h5>未来7天气象趋势预测</h5>
-          
+
           <div ref="predictionChartRef" class="chart"></div>
         </div>
       </div>
@@ -77,13 +77,13 @@ const predictWeather = async () => {
 
     // 发送风险预测请求
     const riskResponse = await axios.post('http://localhost:8000/api/v1/risk_prediction', {
-    data: normalizedData
+      data: normalizedData
     });
-  
+
 
     // 发送未来天气预测请求
     const weatherResponse = await axios.post('http://localhost:8000/api/v1/weather_prediction', {
-     data: normalizedData
+      data: normalizedData
     });
 
     // 保存预测结果
