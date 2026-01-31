@@ -1,8 +1,10 @@
 from models.lstm_weather_model import LSTMWeatherModel
 from models.lstm_model import LSTMModel
+from models.transformer_model import TransformerModel
+from models.transformer_weather_model import TransformerWeatherModel
 from data.data_processor import DataProcessor
 from backend.config.config import settings
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import numpy as np
@@ -23,6 +25,10 @@ sys.path.append(os.path.dirname(os.path.dirname(
 # 初始化模型
 model = None
 weather_model = None
+
+# 初始化Transformer模型
+transformer_model = None
+transformer_weather_model = None
 
 # 定义请求体模型
 
@@ -52,6 +58,7 @@ class WeatherPredictionResponse(BaseModel):
     future_weather: list  # 未来7天的气象数据预测
     risk_predictions: list  # 未来7天的洪涝风险预测
     message: str  # 响应消息
+    architecture: str  # 使用的模型架构
 
 
 # 创建FastAPI应用
@@ -72,82 +79,156 @@ app.add_middleware(
 # 模型加载依赖
 
 
-def get_model():
-    global model
-    if model is None:
-        # 加载训练好的模型
-        try:
-            # 获取输入形状
-            # (seq_length, num_features)
-            input_shape = (settings.SEQ_LENGTH, 6)
-            model_instance = LSTMModel(input_shape=input_shape, num_classes=3)
-            model_instance.load_model(settings.MODEL_PATH)
-            model = model_instance
-            return model
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"模型加载失败: {str(e)}")
-    return model
+def get_model(architecture: str = Query(settings.DEFAULT_ARCHITECTURE, description="模型架构选择", enum=["lstm", "transformer"])):
+    global model, transformer_model
+    
+    if architecture == "transformer":
+        # 加载Transformer模型
+        if transformer_model is None:
+            try:
+                # 获取输入形状
+                # (seq_length, num_features)
+                input_shape = (settings.SEQ_LENGTH, 6)
+                model_instance = TransformerModel(input_shape=input_shape, num_classes=3)
+                model_instance.load_model(settings.TRANSFORMER_MODEL_PATH)
+                transformer_model = model_instance
+                return model_instance
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Transformer模型加载失败: {str(e)}")
+        return transformer_model
+    else:
+        # 加载LSTM模型
+        if model is None:
+            try:
+                # 获取输入形状
+                # (seq_length, num_features)
+                input_shape = (settings.SEQ_LENGTH, 6)
+                model_instance = LSTMModel(input_shape=input_shape, num_classes=3)
+                model_instance.load_model(settings.MODEL_PATH)
+                model = model_instance
+                return model
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"LSTM模型加载失败: {str(e)}")
+        return model
 
 # 气象预测模型加载依赖
 
 
-def get_weather_model():
-    global weather_model
-    if weather_model is None:
-        # 加载训练好的气象预测模型
-        try:
-            # 获取输入形状
-            # (seq_length, num_features)
-            input_shape = (settings.SEQ_LENGTH, 6)
-            model_instance = LSTMWeatherModel(
-                input_shape=input_shape, output_features=6)
-            model_instance.load_model(settings.WEATHER_MODEL_PATH)
-
-            # 尝试加载归一化器
+def get_weather_model(architecture: str = Query(settings.DEFAULT_ARCHITECTURE, description="模型架构选择", enum=["lstm", "transformer"])):
+    global weather_model, transformer_weather_model
+    
+    if architecture == "transformer":
+        # 加载Transformer天气模型
+        if transformer_weather_model is None:
             try:
-                import joblib
-                import os
+                # 获取输入形状
+                # (seq_length, num_features)
+                input_shape = (settings.SEQ_LENGTH, 6)
+                model_instance = TransformerWeatherModel(
+                    input_shape=input_shape, output_features=6)
+                model_instance.load_model(settings.TRANSFORMER_WEATHER_MODEL_PATH)
 
-                # 构建归一化器文件路径
-                # 首先尝试从训练时保存的处理数据路径加载
-                processed_data_path = "../../data/processed/processed_data_scaler.pkl"  # 相对于backend/app的路径
+                # 尝试加载归一化器
+                try:
+                    import joblib
+                    import os
 
-                # 如果上述路径不存在，尝试其他可能的路径
-                if not os.path.exists(processed_data_path):
-                    processed_data_path = os.path.join(os.path.dirname(os.path.dirname(
-                        os.path.dirname(os.path.abspath(__file__)))), "data", "processed", "processed_data_scaler.pkl")
+                    # 构建归一化器文件路径
+                    # 首先尝试从训练时保存的处理数据路径加载
+                    processed_data_path = "../../data/processed/processed_data_scaler.pkl"  # 相对于backend/app的路径
 
-                if os.path.exists(processed_data_path):
-                    scaler = joblib.load(processed_data_path)
-                    model_instance.set_scaler(scaler)
-                    print(f"归一化器已从 {processed_data_path} 加载到天气预测模型")
-                else:
-                    print(f"未找到归一化器文件: {processed_data_path}")
-                    # 尝试从模型目录加载
-                    scaler_path_from_model_dir = os.path.join(os.path.dirname(os.path.dirname(
-                        os.path.dirname(os.path.abspath(__file__)))), "models", "processed_data_scaler.pkl")
-                    if os.path.exists(scaler_path_from_model_dir):
-                        scaler = joblib.load(scaler_path_from_model_dir)
+                    # 如果上述路径不存在，尝试其他可能的路径
+                    if not os.path.exists(processed_data_path):
+                        processed_data_path = os.path.join(os.path.dirname(os.path.dirname(
+                            os.path.dirname(os.path.abspath(__file__)))), "data", "processed", "processed_data_scaler.pkl")
+
+                    if os.path.exists(processed_data_path):
+                        scaler = joblib.load(processed_data_path)
                         model_instance.set_scaler(scaler)
-                        print(f"归一化器已从 {scaler_path_from_model_dir} 加载到天气预测模型")
+                        print(f"归一化器已从 {processed_data_path} 加载到Transformer天气预测模型")
                     else:
-                        print(f"在 {scaler_path_from_model_dir} 也未找到归一化器文件")
-            except Exception as scaler_error:
-                print(f"加载归一化器时出错: {str(scaler_error)}")
-                import traceback
-                traceback.print_exc()
+                        print(f"未找到归一化器文件: {processed_data_path}")
+                        # 尝试从模型目录加载
+                        scaler_path_from_model_dir = os.path.join(os.path.dirname(os.path.dirname(
+                            os.path.dirname(os.path.abspath(__file__)))), "models", "processed_data_scaler.pkl")
+                        if os.path.exists(scaler_path_from_model_dir):
+                            scaler = joblib.load(scaler_path_from_model_dir)
+                            model_instance.set_scaler(scaler)
+                            print(f"归一化器已从 {scaler_path_from_model_dir} 加载到Transformer天气预测模型")
+                        else:
+                            print(f"在 {scaler_path_from_model_dir} 也未找到归一化器文件")
+                except Exception as scaler_error:
+                    print(f"加载归一化器时出错: {str(scaler_error)}")
+                    import traceback
+                    traceback.print_exc()
 
-            weather_model = model_instance
-            return model_instance
-        except Exception as e:
-            # 如果加载失败，返回一个默认的气象预测模型实例（使用趋势预测）
-            # (seq_length, num_features)
-            input_shape = (settings.SEQ_LENGTH, 6)
-            model_instance = LSTMWeatherModel(
-                input_shape=input_shape, output_features=6)
-            weather_model = model_instance
-            return model_instance
-    return weather_model
+                transformer_weather_model = model_instance
+                return model_instance
+            except Exception as e:
+                # 如果加载失败，返回一个默认的气象预测模型实例（使用趋势预测）
+                # (seq_length, num_features)
+                input_shape = (settings.SEQ_LENGTH, 6)
+                model_instance = TransformerWeatherModel(
+                    input_shape=input_shape, output_features=6)
+                transformer_weather_model = model_instance
+                return model_instance
+        return transformer_weather_model
+    else:
+        # 加载LSTM天气模型
+        if weather_model is None:
+            try:
+                # 获取输入形状
+                # (seq_length, num_features)
+                input_shape = (settings.SEQ_LENGTH, 6)
+                model_instance = LSTMWeatherModel(
+                    input_shape=input_shape, output_features=6)
+                model_instance.load_model(settings.WEATHER_MODEL_PATH)
+
+                # 尝试加载归一化器
+                try:
+                    import joblib
+                    import os
+
+                    # 构建归一化器文件路径
+                    # 首先尝试从训练时保存的处理数据路径加载
+                    processed_data_path = "../../data/processed/processed_data_scaler.pkl"  # 相对于backend/app的路径
+
+                    # 如果上述路径不存在，尝试其他可能的路径
+                    if not os.path.exists(processed_data_path):
+                        processed_data_path = os.path.join(os.path.dirname(os.path.dirname(
+                            os.path.dirname(os.path.abspath(__file__)))), "data", "processed", "processed_data_scaler.pkl")
+
+                    if os.path.exists(processed_data_path):
+                        scaler = joblib.load(processed_data_path)
+                        model_instance.set_scaler(scaler)
+                        print(f"归一化器已从 {processed_data_path} 加载到LSTM天气预测模型")
+                    else:
+                        print(f"未找到归一化器文件: {processed_data_path}")
+                        # 尝试从模型目录加载
+                        scaler_path_from_model_dir = os.path.join(os.path.dirname(os.path.dirname(
+                            os.path.dirname(os.path.abspath(__file__)))), "models", "processed_data_scaler.pkl")
+                        if os.path.exists(scaler_path_from_model_dir):
+                            scaler = joblib.load(scaler_path_from_model_dir)
+                            model_instance.set_scaler(scaler)
+                            print(f"归一化器已从 {scaler_path_from_model_dir} 加载到LSTM天气预测模型")
+                        else:
+                            print(f"在 {scaler_path_from_model_dir} 也未找到归一化器文件")
+                except Exception as scaler_error:
+                    print(f"加载归一化器时出错: {str(scaler_error)}")
+                    import traceback
+                    traceback.print_exc()
+
+                weather_model = model_instance
+                return model_instance
+            except Exception as e:
+                # 如果加载失败，返回一个默认的气象预测模型实例（使用趋势预测）
+                # (seq_length, num_features)
+                input_shape = (settings.SEQ_LENGTH, 6)
+                model_instance = LSTMWeatherModel(
+                    input_shape=input_shape, output_features=6)
+                weather_model = model_instance
+                return model_instance
+        return weather_model
 
 # 根路径
 
@@ -164,7 +245,7 @@ def read_root():
 
 
 @app.post(f"{settings.API_V1_STR}/risk_prediction", response_model=RiskPredictionResponse)
-def predict_risk(weather_data: WeatherData, model: LSTMModel = Depends(get_model)):
+def predict_risk(weather_data: WeatherData, architecture: str = Query(settings.DEFAULT_ARCHITECTURE, description="模型架构选择", enum=["lstm", "transformer"]), model=Depends(get_model)):
     try:
         # 验证输入数据格式
         if len(weather_data.data) < 3:  # 至少需要3个时间点来计算趋势
@@ -181,6 +262,17 @@ def predict_risk(weather_data: WeatherData, model: LSTMModel = Depends(get_model
             raise HTTPException(
                 status_code=400,
                 detail="每个时间点必须包含6个气象特征: [降雨量, 持续时间, 风速, 平均温度, 最低温度, 最高温度]"
+            )
+
+        # 确保输入序列长度与模型训练时使用的长度一致
+        if X.shape[0] > settings.SEQ_LENGTH:
+            # 如果输入长度大于模型期望长度，使用最近的 SEQ_LENGTH 个时间点
+            X = X[-settings.SEQ_LENGTH:]
+        elif X.shape[0] < settings.SEQ_LENGTH:
+            # 如果输入长度小于模型期望长度，抛出错误
+            raise HTTPException(
+                status_code=400,
+                detail=f"输入数据必须包含至少 {settings.SEQ_LENGTH} 个时间点的气象数据"
             )
 
         # 扩展维度以匹配模型输入要求
@@ -216,8 +308,9 @@ def predict_risk(weather_data: WeatherData, model: LSTMModel = Depends(get_model
 
 @app.post(f"{settings.API_V1_STR}/weather_prediction", response_model=WeatherPredictionResponse)
 def predict_weather(weather_data: WeatherData,
-                    model: LSTMModel = Depends(get_model),
-                    weather_model: LSTMWeatherModel = Depends(get_weather_model)):
+                    architecture: str = Query(settings.DEFAULT_ARCHITECTURE, description="模型架构选择", enum=["lstm", "transformer"]),
+                    model=Depends(get_model),
+                    weather_model=Depends(get_weather_model)):
 
     try:
         # 验证输入数据格式
@@ -313,7 +406,8 @@ def predict_weather(weather_data: WeatherData,
         response = {
             "future_weather": future_weather.tolist(),
             "risk_predictions": risk_predictions,
-            "message": "未来7天气象数据和洪涝风险预测成功"
+            "message": "未来7天气象数据和洪涝风险预测成功",
+            "architecture": architecture
         }
 
         return response
@@ -344,7 +438,20 @@ def get_cma_data(
         # 构建序列数据（用于前端预测）
         sequences, _ = processor.get_cma_sequences(city_name, hours)
 
-        # latest_sequence已经在前面计算好了
+        # 获取最新的序列数据
+        latest_sequence = []
+        if len(sequences) > 0:
+            latest_sequence = sequences[-1].tolist()
+        else:
+            # 如果没有足够数据，返回模拟数据
+            latest_sequence = [
+                [0.2, 0.1, 0.7, 0.3, 0.5, 0.4],
+                [0.3, 0.2, 0.8, 0.2, 0.4, 0.3],
+                [0.4, 0.3, 0.85, 0.15, 0.35, 0.25],
+                [0.5, 0.4, 0.9, 0.1, 0.3, 0.2],
+                [0.6, 0.5, 0.95, 0.05, 0.25, 0.15],
+                [0.7, 0.6, 0.98, 0.02, 0.2, 0.1]
+            ]
 
         # 将时间格式化为只包含年月日
         raw_data_df = raw_data.reset_index()
@@ -391,11 +498,12 @@ def get_noaa_data(
         # 如果数据库中有城市字段，可以添加：WHERE city = ?
 
         # 添加时间过滤条件
+        params = []
         if start_time and end_time:
             query += " WHERE 时间 BETWEEN ? AND ?"
-            cursor.execute(query, (start_time, end_time))
-        else:
-            cursor.execute(query)
+            params = [start_time, end_time]
+
+        cursor.execute(query, params)
 
         # 获取查询结果
         rows = cursor.fetchall()
@@ -435,33 +543,44 @@ def get_noaa_data(
         # 删除id列
         df.drop('id', axis=1, inplace=True)
 
-        # 转换为 datetime 对象
-        start = datetime.strptime(start_time, "%Y-%m-%d")
-        end = datetime.strptime(end_time, "%Y-%m-%d")
+        # 如果指定了时间范围，则过滤数据
+        if start_time and end_time:
+            start_dt = pd.to_datetime(start_time)
+            end_dt = pd.to_datetime(end_time)
+            df = df[(df.index >= start_dt) & (df.index <= end_dt)]
 
-        # 计算天数差
-        day_len = (end - start).days
+        # 检查过滤后是否还有数据
+        if df.empty:
+            latest_sequence = [
+                [0.2, 0.1, 0.7, 0.3, 0.5, 0.4],
+                [0.3, 0.2, 0.8, 0.2, 0.4, 0.3],
+                [0.4, 0.3, 0.85, 0.15, 0.35, 0.25],
+                [0.5, 0.4, 0.9, 0.1, 0.3, 0.2],
+                [0.6, 0.5, 0.95, 0.05, 0.25, 0.15],
+                [0.7, 0.6, 0.98, 0.02, 0.2, 0.1]
+            ]
+            return {
+                "city_name": city_name,
+                "data_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "raw_data": [],
+                "normalized_data": latest_sequence,
+                "message": "数据库中没有符合条件的数据，返回模拟数据"
+            }
 
-        print("111", len(df))
         # 创建数据处理器
-        processor = DataProcessor(seq_length=len(
-            df), pred_length=settings.PRED_LENGTH)
+        processor = DataProcessor(
+            seq_length=settings.SEQ_LENGTH, pred_length=settings.PRED_LENGTH)
 
         # 预处理数据
         processed_df = processor.preprocess(df)
 
         # 构建序列数据（用于前端预测）
-        # 使用整个时间范围的数据作为一个序列
         feature_cols = ['降雨量', '持续时间', '风速', '平均温度', '最低温度', '最高温度']
         latest_sequence = processed_df[feature_cols].values.tolist()
-        sequences = [np.array(latest_sequence)]
 
-        # 转换为前端需要的格式
-        if len(sequences) > 0:
-            # 获取最新的一个序列
-            latest_sequence = sequences[-1].tolist()
-        else:
-            # 如果没有足够数据，返回模拟数据
+        # 确保序列长度符合要求
+        if len(latest_sequence) < settings.SEQ_LENGTH:
+            # 如果数据不足，使用填充或返回模拟数据
             latest_sequence = [
                 [0.2, 0.1, 0.7, 0.3, 0.5, 0.4],
                 [0.3, 0.2, 0.8, 0.2, 0.4, 0.3],
@@ -472,10 +591,9 @@ def get_noaa_data(
             ]
 
         # 准备响应数据 - 将时间格式化为只包含年月日
-        df.reset_index(inplace=True)
-        df['时间'] = df['时间'].dt.strftime('%Y-%m-%d')
-        raw_data_dict = df.to_dict(orient="records")
-        print(raw_data_dict)
+        df_reset = df.reset_index()
+        df_reset['时间'] = df_reset['时间'].dt.strftime('%Y-%m-%d')
+        raw_data_dict = df_reset.to_dict(orient="records")
         return {
             "city_name": city_name,
             "data_timestamp": datetime.now().strftime("%Y-%m-%d"),

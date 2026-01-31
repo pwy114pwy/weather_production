@@ -1,55 +1,218 @@
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, confusion_matrix
-from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-from tensorflow.keras.layers import LSTM, Dense, Dropout
-from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout, Input, Layer, GlobalAveragePooling1D
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
 import tensorflow as tf
+from tensorflow import keras
 import numpy as np
 import sys
 import os
+
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-class LSTMModel:
+@tf.keras.utils.register_keras_serializable()
+class PositionalEncoding(Layer):
+    """位置编码层"""
+    def __init__(self, name=None, **kwargs):
+        super(PositionalEncoding, self).__init__(name=name, **kwargs)
+    
+    def call(self, inputs):
+        batch_size = tf.shape(inputs)[0]
+        seq_length = tf.shape(inputs)[1]
+        feature_dim = tf.shape(inputs)[2]
+        
+        # 创建位置编码
+        position = tf.range(seq_length, dtype=tf.float32)[:, tf.newaxis]
+        
+        # 计算位置编码的维度
+        max_dim = tf.cast(feature_dim, tf.int32)
+        even_dim = tf.cast(tf.floor(tf.cast(max_dim, tf.float32) / 2.0), tf.int32)
+        
+        # 确保所有操作都使用float32类型
+        feature_dim_float = tf.cast(max_dim, tf.float32)
+        div_term = tf.exp(tf.range(0, even_dim * 2, 2, dtype=tf.float32) * (-tf.cast(tf.math.log(10000.0), tf.float32) / feature_dim_float))
+        
+        # 计算正弦和余弦编码
+        sin_encoding = tf.sin(position * div_term)
+        cos_encoding = tf.cos(position * div_term)
+        
+        # 创建位置编码矩阵
+        # 扩展sin和cos编码到特征维度
+        sin_encoding = tf.tile(sin_encoding, [1, 2])[:, :max_dim]
+        cos_encoding = tf.concat([tf.zeros_like(cos_encoding), cos_encoding], axis=1)[:, :max_dim]
+        
+        # 交替放置sin和cos编码
+        pos_encoding = sin_encoding + cos_encoding
+        
+        # 扩展维度并广播到batch_size
+        pos_encoding = tf.tile(pos_encoding[tf.newaxis, :, :], [batch_size, 1, 1])
+        
+        return inputs + pos_encoding
+    
+    def get_config(self):
+        config = super(PositionalEncoding, self).get_config()
+        return config
+
+
+@tf.keras.utils.register_keras_serializable()
+class MultiHeadAttention(Layer):
+    """多头注意力层"""
+    def __init__(self, d_model, num_heads, **kwargs):
+        super(MultiHeadAttention, self).__init__(**kwargs)
+        self.num_heads = num_heads
+        self.d_model = d_model
+        
+        assert d_model % self.num_heads == 0
+        
+        self.depth = d_model // self.num_heads
+        
+        self.wq = Dense(d_model)
+        self.wk = Dense(d_model)
+        self.wv = Dense(d_model)
+        
+        self.dense = Dense(d_model)
+    
+    def split_heads(self, x, batch_size):
+        x = tf.reshape(x, (batch_size, -1, self.num_heads, self.depth))
+        return tf.transpose(x, perm=[0, 2, 1, 3])
+    
+    def call(self, v, k, q, mask=None):
+        batch_size = tf.shape(q)[0]
+        
+        q = self.wq(q)
+        k = self.wk(k)
+        v = self.wv(v)
+        
+        q = self.split_heads(q, batch_size)
+        k = self.split_heads(k, batch_size)
+        v = self.split_heads(v, batch_size)
+        
+        matmul_qk = tf.matmul(q, k, transpose_b=True)
+        dk = tf.cast(tf.shape(k)[-1], tf.float32)
+        scaled_attention_logits = matmul_qk / tf.math.sqrt(dk)
+        
+        if mask is not None:
+            scaled_attention_logits += (mask * -1e9)
+        
+        attention_weights = tf.nn.softmax(scaled_attention_logits, axis=-1)
+        output = tf.matmul(attention_weights, v)
+        output = tf.transpose(output, perm=[0, 2, 1, 3])
+        output = tf.reshape(output, (batch_size, -1, self.d_model))
+        output = self.dense(output)
+        
+        return output
+    
+    def get_config(self):
+        config = super(MultiHeadAttention, self).get_config()
+        config.update({
+            'd_model': self.d_model,
+            'num_heads': self.num_heads
+        })
+        return config
+
+
+@tf.keras.utils.register_keras_serializable()
+class TransformerEncoderLayer(Layer):
+    """Transformer编码器层"""
+    def __init__(self, d_model, num_heads, ff_dim, dropout=0.1, **kwargs):
+        super(TransformerEncoderLayer, self).__init__(**kwargs)
+        self.mha = MultiHeadAttention(d_model, num_heads)
+        self.ffn = tf.keras.Sequential([
+            Dense(ff_dim, activation='relu'),
+            Dense(d_model)
+        ])
+        
+        self.layernorm1 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        self.layernorm2 = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        
+        self.dropout1 = Dropout(dropout)
+        self.dropout2 = Dropout(dropout)
+        
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.ff_dim = ff_dim
+        self.dropout = dropout
+    
+    def call(self, x, training=True):
+        attn_output = self.mha(x, x, x)
+        attn_output = self.dropout1(attn_output, training=training)
+        out1 = self.layernorm1(x + attn_output)
+        
+        ffn_output = self.ffn(out1)
+        ffn_output = self.dropout2(ffn_output, training=training)
+        out2 = self.layernorm2(out1 + ffn_output)
+        
+        return out2
+    
+    def get_config(self):
+        config = super(TransformerEncoderLayer, self).get_config()
+        config.update({
+            'd_model': self.d_model,
+            'num_heads': self.num_heads,
+            'ff_dim': self.ff_dim,
+            'dropout': self.dropout
+        })
+        return config
+
+
+class TransformerModel:
     def __init__(self, input_shape, num_classes=3):
         self.input_shape = input_shape  # (seq_length, num_features)
         self.num_classes = num_classes  # 0=无, 1=中, 2=高
         self.model = self._build_model()
 
     def _build_model(self):
-        """构建LSTM模型"""
-        model = Sequential([
-            # LSTM层1
-            LSTM(units=64, return_sequences=True,
-                 input_shape=self.input_shape),
-            Dropout(0.2),
-
-            # LSTM层2
-            LSTM(units=32, return_sequences=False),
-            Dropout(0.2),
-
-            # 全连接层
-            Dense(units=16, activation='relu'),
-
-            # 输出层（Softmax用于多分类）
-            Dense(units=self.num_classes, activation='softmax')
-        ])
-
-        # 编译模型，使用交叉熵损失函数
-        # 由于灾害预测中漏判代价高，使用class_weight平衡类别
+        """构建Transformer模型"""
+        inputs = Input(shape=self.input_shape)
+        
+        # 位置编码
+        x = PositionalEncoding()(inputs)
+        
+        # 将输入特征维度映射到d_model
+        x = Dense(64, activation='relu')(x)
+        
+        # Transformer编码器层
+        x = TransformerEncoderLayer(
+            d_model=64,
+            num_heads=4,
+            ff_dim=128,
+            dropout=0.2
+        )(x)
+        
+        x = TransformerEncoderLayer(
+            d_model=64,
+            num_heads=4,
+            ff_dim=128,
+            dropout=0.2
+        )(x)
+        
+        # 全局池化
+        x = GlobalAveragePooling1D()(x)
+        
+        # 全连接层
+        x = Dense(units=16, activation='relu')(x)
+        x = Dropout(0.2)(x)
+        
+        # 输出层
+        outputs = Dense(units=self.num_classes, activation='softmax')(x)
+        
+        model = Model(inputs=inputs, outputs=outputs)
         model.compile(
             optimizer=Adam(learning_rate=0.001),
             loss='sparse_categorical_crossentropy',
             metrics=['accuracy']
         )
-
+        
         return model
 
     def train(self, X_train, y_train, X_val, y_val, epochs=50, batch_size=32):
         """训练模型"""
         # 计算类别权重，处理类别不平衡
         class_counts = np.bincount(y_train.astype(int))
+        # 由于灾害预测中漏判代价高，使用class_weight平衡类别
         class_weights = {0: 1.0, 1: 2.0, 2: 3.0}  # 高风险类别权重更高
 
         # 定义回调函数
@@ -58,14 +221,14 @@ class LSTMModel:
 
         # 获取项目根目录
         BASE_DIR = Path(__file__).resolve().parent.parent
-        best_model_path = str(BASE_DIR / "models" / "best_model.keras")
+        best_model_path = str(BASE_DIR / "models" / "best_transformer_model.keras")
 
         callbacks = [
             EarlyStopping(monitor='val_loss', patience=10,
                           restore_best_weights=True),
             ModelCheckpoint(
                 filepath=best_model_path,
-                monitor='val_recall',
+                monitor='val_accuracy',
                 mode='max',
                 save_best_only=True
             )
@@ -77,8 +240,8 @@ class LSTMModel:
             validation_data=(X_val, y_val),
             epochs=epochs,
             batch_size=batch_size,
-            class_weight=class_weights,
             callbacks=callbacks,
+            class_weight=class_weights,
             verbose=1
         )
 
@@ -97,11 +260,10 @@ class LSTMModel:
         precision = precision_score(y_test, y_pred, average='weighted')
         recall = recall_score(y_test, y_pred, average='weighted')
         f1 = f1_score(y_test, y_pred, average='weighted')
-
+        
         # 计算AUC（需要至少2个类别）
         auc = None
         try:
-            # 检查实际数据中的类别数量
             unique_classes = np.unique(y_test)
             if len(unique_classes) >= 2:
                 auc = roc_auc_score(y_test, y_pred_prob,
@@ -303,11 +465,11 @@ if __name__ == "__main__":
 
     # 预处理数据
     print("\n预处理数据...")
-    processed_df = processor.preprocess(df)
+    scaled_df = processor.preprocess(df)
 
     # 统计标签分布
     # 从预处理后的DataFrame中获取风险标签
-    risk_labels = processed_df['洪涝风险标签']
+    risk_labels = scaled_df['洪涝风险标签']
     unique, counts = np.unique(risk_labels, return_counts=True)
     print(f"\n风险标签分布:")
     for label, count in zip(unique, counts):
@@ -317,7 +479,7 @@ if __name__ == "__main__":
 
     # 构建序列数据
     print("\n构建时间序列数据...")
-    sequences, targets = processor.create_sequences(processed_df)
+    sequences, targets = processor.create_sequences(scaled_df)
 
     # 划分数据集
     print("\n划分训练集、验证集和测试集...")
@@ -332,7 +494,7 @@ if __name__ == "__main__":
     # 初始化模型
     # (seq_length, num_features)
     input_shape = (X_train.shape[1], X_train.shape[2])
-    model = LSTMModel(input_shape=input_shape, num_classes=3)
+    model = TransformerModel(input_shape=input_shape, num_classes=3)
 
     # 训练模型
     print("\n开始训练模型...")
@@ -344,7 +506,7 @@ if __name__ == "__main__":
     evaluation_results = model.evaluate(X_test, y_test)
 
     # 保存模型
-    final_model_path = str(BASE_DIR / "models" / "final_model.keras")
+    final_model_path = str(BASE_DIR / "models" / "final_transformer_model.keras")
     model.save_model(final_model_path)
     print("\n模型已保存！")
 

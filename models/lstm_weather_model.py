@@ -80,11 +80,19 @@ class LSTMWeatherModel:
     def train(self, X_train, y_train, X_val, y_val, epochs=50, batch_size=32):
         """训练气象预测模型"""
         # 定义回调函数
+        import os
+        from pathlib import Path
+
+        # 获取项目根目录
+        BASE_DIR = Path(__file__).resolve().parent.parent
+        best_weather_model_path = str(
+            BASE_DIR / "models" / "best_weather_model.keras")
+
         callbacks = [
             EarlyStopping(monitor='val_loss', patience=10,
                           restore_best_weights=True),
             ModelCheckpoint(
-                filepath='d:\\nature-disaster-prediction\\models\\best_weather_model.keras',
+                filepath=best_weather_model_path,
                 monitor='val_loss',
                 mode='min',
                 save_best_only=True
@@ -180,7 +188,28 @@ class LSTMWeatherModel:
             current_sequence = np.concatenate(
                 [current_sequence[1:], next_step_reshaped], axis=0)
 
-        return np.array(future_predictions)
+        future_predictions = np.array(future_predictions)
+        
+        # 如果有归一化器，尝试反归一化
+        if self.scaler is not None:
+            try:
+                # 将预测结果重塑为适合反归一化的形状
+                original_shape = future_predictions.shape
+                reshaped_preds = future_predictions.reshape(
+                    -1, original_shape[-1])
+
+                # 检查scaler是否适用于当前数据形状
+                if reshaped_preds.shape[1] == self.scaler.n_features_in_:
+                    future_predictions = self.scaler.inverse_transform(
+                        reshaped_preds).reshape(original_shape)
+                else:
+                    print(
+                        f"警告: Scaler特征数({self.scaler.n_features_in_})与预测数据特征数({reshaped_preds.shape[1]})不匹配")
+            except Exception as scaler_error:
+                print(f"备用预测反归一化失败: {str(scaler_error)}，返回归一化后的预测结果")
+                # 反归一化失败时仍返回原始预测结果
+        
+        return future_predictions
 
     def save_model(self, file_path):
         """保存模型"""

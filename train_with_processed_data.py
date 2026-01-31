@@ -3,19 +3,19 @@ import sys
 
 import numpy as np
 
-from models.lstm_model import LSTMModel
-
 # 添加项目根目录到Python路径
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 
-def train_model_with_processed_data(data_file_path):
+def train_model_with_processed_data(data_file_path, architecture='lstm'):
     """使用已预处理的数据文件训练模型
 
     Args:
         data_file_path: 预处理后的数据文件路径 (.npz格式)
+        architecture: 模型架构选择 ('lstm' 或 'transformer')
     """
     print(f"加载预处理数据文件: {data_file_path}")
+    print(f"使用模型架构: {architecture}")
 
     try:
         # 从数据处理模块加载数据和归一化器
@@ -62,7 +62,13 @@ def train_model_with_processed_data(data_file_path):
 
         print(f"输入形状: {input_shape}, 类别数量: {num_classes}")
 
-        model = LSTMModel(input_shape=input_shape, num_classes=num_classes)
+        # 根据架构选择初始化模型
+        if architecture == 'transformer':
+            from models.transformer_model import TransformerModel
+            model = TransformerModel(input_shape=input_shape, num_classes=num_classes)
+        else:  # 默认使用LSTM
+            from models.lstm_model import LSTMModel
+            model = LSTMModel(input_shape=input_shape, num_classes=num_classes)
 
         # 训练模型
         print("\n开始训练模型...")
@@ -72,11 +78,17 @@ def train_model_with_processed_data(data_file_path):
         # 如果有weather_targets数据，同时训练天气预测模型
         if has_weather_targets:
             print("\n开始训练天气预测模型...")
-            from models.lstm_weather_model import LSTMWeatherModel
-
-            # 天气预测模型输入形状与风险预测模型相同
-            weather_model = LSTMWeatherModel(
-                input_shape=input_shape, output_features=X_train.shape[2])
+            
+            # 根据架构选择初始化天气预测模型
+            pred_days = y_weather_train.shape[1]  # 获取实际的预测天数
+            if architecture == 'transformer':
+                from models.transformer_weather_model import TransformerWeatherModel
+                weather_model = TransformerWeatherModel(
+                    input_shape=input_shape, output_features=X_train.shape[2], pred_days=pred_days)
+            else:  # 默认使用LSTM
+                from models.lstm_weather_model import LSTMWeatherModel
+                weather_model = LSTMWeatherModel(
+                    input_shape=input_shape, output_features=X_train.shape[2])
 
             # 设置归一化器到模型（如果存在）
             if scaler is not None:
@@ -93,8 +105,15 @@ def train_model_with_processed_data(data_file_path):
             base_dir = os.path.abspath(os.path.dirname(__file__))
             model_dir = os.path.join(base_dir, "models")
             os.makedirs(model_dir, exist_ok=True)
-            weather_model_path = os.path.join(
-                model_dir, "final_weather_model.keras")
+            
+            # 根据架构选择保存路径
+            if architecture == 'transformer':
+                weather_model_path = os.path.join(
+                    model_dir, "final_transformer_weather_model.keras")
+            else:
+                weather_model_path = os.path.join(
+                    model_dir, "final_weather_model.keras")
+            
             weather_model.save_model(weather_model_path)
             print(f"天气预测模型已保存到: {weather_model_path}")
 
@@ -106,7 +125,13 @@ def train_model_with_processed_data(data_file_path):
         base_dir = os.path.abspath(os.path.dirname(__file__))
         model_dir = os.path.join(base_dir, "models")
         os.makedirs(model_dir, exist_ok=True)
-        model_path = os.path.join(model_dir, "final_model.keras")
+        
+        # 根据架构选择保存路径
+        if architecture == 'transformer':
+            model_path = os.path.join(model_dir, "final_transformer_model.keras")
+        else:
+            model_path = os.path.join(model_dir, "final_model.keras")
+        
         model.save_model(model_path)
         print(f"\n模型已保存到: {model_path}")
 
@@ -119,7 +144,7 @@ def train_model_with_processed_data(data_file_path):
             print(f"预测类别: {pred_class[0]}, 预测概率: {pred_prob[0]}")
             print(f"风险解释: {explanation}")
 
-        return True, "模型训练完成！"
+        return True, f"{architecture}模型训练完成！"
 
     except Exception as e:
         print(f"训练过程中发生错误: {str(e)}")
@@ -131,17 +156,28 @@ def train_model_with_processed_data(data_file_path):
 if __name__ == "__main__":
     # 默认数据文件路径（使用原始字符串避免转义问题）
     default_data_path = r"D:\nature-disaster-prediction\data\processed\processed_data.npz"
+    
+    # 默认架构
+    default_architecture = 'transformer'
 
-    # 可以通过命令行参数指定数据文件路径
+    # 可以通过命令行参数指定数据文件路径和架构
     data_path = default_data_path
+    architecture = default_architecture
+    
     if len(sys.argv) > 1:
         data_path = sys.argv[1]
+    
+    if len(sys.argv) > 2:
+        architecture = sys.argv[2]
+        if architecture not in ['lstm', 'transformer']:
+            print(f"警告: 未知架构 '{architecture}'，使用默认架构 'lstm'")
+            architecture = 'lstm'
 
-    print("使用已预处理数据训练LSTM模型")
+    print(f"使用已预处理数据训练{architecture}模型")
     print(f"数据文件: {data_path}")
     print("=" * 60)
 
-    success, message = train_model_with_processed_data(data_path)
+    success, message = train_model_with_processed_data(data_path, architecture)
 
     if success:
         print("\n✅ 训练成功完成！")
