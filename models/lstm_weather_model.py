@@ -20,6 +20,7 @@ class LSTMWeatherModel:
         self.pred_days = pred_days  # 预测未来天数
         self.model = self._build_seq2seq_model()  # 使用Seq2Seq模型
         self.scaler = None
+        self.feature_names = ['降雨量', '持续时间', '风速', '平均温度', '最低温度', '最高温度']  # 特征名称，用于反归一化时参考
 
     def _build_seq2seq_model(self):
         """构建带注意力机制的Seq2Seq模型"""
@@ -116,12 +117,19 @@ class LSTMWeatherModel:
 
             # 如果有归一化器，尝试反归一化
             if self.scaler is not None:
-                # 将预测结果重塑为适合反归一化的形状
-                original_shape = future_predictions.shape
-                reshaped_preds = future_predictions.reshape(
-                    -1, original_shape[-1])
-                future_predictions = self.scaler.inverse_transform(
-                    reshaped_preds).reshape(original_shape)
+                try:
+                    # 将预测结果重塑为适合反归一化的形状
+                    original_shape = future_predictions.shape
+                    reshaped_preds = future_predictions.reshape(-1, original_shape[-1])
+                    
+                    # 检查scaler是否适用于当前数据形状
+                    if reshaped_preds.shape[1] == self.scaler.n_features_in_:
+                        future_predictions = self.scaler.inverse_transform(reshaped_preds).reshape(original_shape)
+                    else:
+                        print(f"警告: Scaler特征数({self.scaler.n_features_in_})与预测数据特征数({reshaped_preds.shape[1]})不匹配")
+                except Exception as scaler_error:
+                    print(f"反归一化失败: {str(scaler_error)}，返回归一化后的预测结果")
+                    # 反归一化失败时仍返回原始预测结果
 
             return future_predictions
         except Exception as e:

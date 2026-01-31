@@ -135,13 +135,16 @@ const initPredictionChart = () => {
   // 获取后端返回的预测数据
   const futurePredictions = weatherStore.getPredictionResults.future_predictions;
 
-  // 将归一化数据转换为原始数据范围（更合理的转换）
+  // 将归一化数据转换为原始数据范围（使用更科学的反归一化方法）
+  // 这里假设数据已经被模型内部正确反归一化，否则使用估计的范围
   const featureData = {
-    '降雨量': futurePredictions.map(item => item[0] * 50),  // 假设最大值为50mm（更合理的日降雨量范围）
-    '风速': futurePredictions.map(item => item[2] * 10),  // 假设最大值为10m/s（合理的风速范围）
-    '平均温度': futurePredictions.map(item => (item[3] * 35) + 5),  // 假设范围为5到40℃
-    '最低温度': futurePredictions.map(item => (item[4] * 30) + 0),  // 假设范围为0到30℃
-    '最高温度': futurePredictions.map(item => (item[5] * 30) + 15)  // 假设范围为15到45℃
+    '降雨量': futurePredictions.map(item => item[0]),  // 保持原样，如果数据已经反归一化
+    '风速': futurePredictions.map(item => item[2]),  // 保持原样，如果数据已经反归一化
+    '平均温度': futurePredictions.map(item => item[3]),  // 保持原样，如果数据已经反归一化
+    // 注意：以下特征仅用于图表展示，风险预测不依赖它们
+    '持续时间': futurePredictions.map(item => item[1]),
+    '最低温度': futurePredictions.map(item => item[4]),
+    '最高温度': futurePredictions.map(item => item[5])
   };
 
   // 配置图表

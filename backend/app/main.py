@@ -106,20 +106,36 @@ def get_weather_model():
             # 尝试加载归一化器
             try:
                 import joblib
-                # 从数据处理模块获取归一化器
-                from data.data_processor import DataProcessor
-                processor = DataProcessor()
-                # 尝试加载预处理时保存的归一化器
                 import os
-                processed_data_path = "../data/processed/processed_data_scaler.pkl"  # 假设归一化器保存在该位置
+                
+                # 构建归一化器文件路径
+                # 首先尝试从训练时保存的处理数据路径加载
+                processed_data_path = "../../data/processed/processed_data_scaler.pkl"  # 相对于backend/app的路径
+                
+                # 如果上述路径不存在，尝试其他可能的路径
+                if not os.path.exists(processed_data_path):
+                    processed_data_path = os.path.join(os.path.dirname(os.path.dirname(
+                        os.path.dirname(os.path.abspath(__file__)))), "data", "processed", "processed_data_scaler.pkl")
+                
                 if os.path.exists(processed_data_path):
                     scaler = joblib.load(processed_data_path)
                     model_instance.set_scaler(scaler)
-                    print("归一化器已加载到天气预测模型")
+                    print(f"归一化器已从 {processed_data_path} 加载到天气预测模型")
                 else:
                     print(f"未找到归一化器文件: {processed_data_path}")
+                    # 尝试从模型目录加载
+                    scaler_path_from_model_dir = os.path.join(os.path.dirname(os.path.dirname(
+                        os.path.dirname(os.path.abspath(__file__)))), "models", "processed_data_scaler.pkl")
+                    if os.path.exists(scaler_path_from_model_dir):
+                        scaler = joblib.load(scaler_path_from_model_dir)
+                        model_instance.set_scaler(scaler)
+                        print(f"归一化器已从 {scaler_path_from_model_dir} 加载到天气预测模型")
+                    else:
+                        print(f"在 {scaler_path_from_model_dir} 也未找到归一化器文件")
             except Exception as scaler_error:
                 print(f"加载归一化器时出错: {str(scaler_error)}")
+                import traceback
+                traceback.print_exc()
 
             weather_model = model_instance
             return model_instance
@@ -241,22 +257,33 @@ def predict_weather(weather_data: WeatherData,
         # 预测未来7天的洪涝风险
         risk_predictions = []
 
-        # 使用最后6个历史数据点作为基础，结合未来预测数据进行风险预测
-        base_sequence = X[-6:]  # 使用最后6个历史数据点
+        # 使用最后的序列作为基础，结合未来预测数据进行风险预测
+        base_sequence = X.copy()  # 使用完整的输入序列作为基础
 
         for i in range(7):
             # 构建当前预测序列
             if i < len(future_weather):
-                # 使用历史数据和未来预测数据构建序列
-                prediction_sequence = np.vstack(
-                    [base_sequence, future_weather[:i+1]])
-                # 只保留最近的6个数据点
-                prediction_sequence = prediction_sequence[-6:]
+                # 使用原始序列和未来预测数据构建新的序列
+                # 为了预测第i天的风险，我们使用最近的SEQ_LENGTH个数据点
+                extended_sequence = np.vstack([base_sequence, future_weather[:i+1]])
+                
+                # 从扩展序列中提取最近的SEQ_LENGTH个数据点
+                if len(extended_sequence) >= settings.SEQ_LENGTH:
+                    prediction_sequence = extended_sequence[-settings.SEQ_LENGTH:]
+                else:
+                    # 如果扩展序列不够长，填充重复数据
+                    prediction_sequence = extended_sequence
+                    while len(prediction_sequence) < settings.SEQ_LENGTH:
+                        prediction_sequence = np.vstack([prediction_sequence, prediction_sequence[-1:]])
             else:
                 # 防止索引越界
-                prediction_sequence = np.vstack(
-                    [base_sequence, future_weather])
-                prediction_sequence = prediction_sequence[-6:]
+                extended_sequence = np.vstack([base_sequence, future_weather])
+                if len(extended_sequence) >= settings.SEQ_LENGTH:
+                    prediction_sequence = extended_sequence[-settings.SEQ_LENGTH:]
+                else:
+                    prediction_sequence = extended_sequence
+                    while len(prediction_sequence) < settings.SEQ_LENGTH:
+                        prediction_sequence = np.vstack([prediction_sequence, prediction_sequence[-1:]])
 
             # 预测风险
             prediction_sequence_reshaped = prediction_sequence.reshape(
