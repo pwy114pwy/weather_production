@@ -126,9 +126,8 @@ python train_with_processed_data.py
 ### 1. 启动后端服务
 
 ```bash
-cd backend/app
-uvicorn main:app --reload --port 8000
-```
+cd /nature-disaster-prediction
+python -m uvicorn backend.app.main:app --reload --port 8000```
 
 后端服务将在 `http://localhost:8000` 上运行，API文档可在 `http://localhost:8000/docs` 查看。
 

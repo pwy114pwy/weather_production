@@ -102,6 +102,25 @@ def get_weather_model():
             model_instance = LSTMWeatherModel(
                 input_shape=input_shape, output_features=6)
             model_instance.load_model(settings.WEATHER_MODEL_PATH)
+
+            # 尝试加载归一化器
+            try:
+                import joblib
+                # 从数据处理模块获取归一化器
+                from data.data_processor import DataProcessor
+                processor = DataProcessor()
+                # 尝试加载预处理时保存的归一化器
+                import os
+                processed_data_path = "../data/processed/processed_data_scaler.pkl"  # 假设归一化器保存在该位置
+                if os.path.exists(processed_data_path):
+                    scaler = joblib.load(processed_data_path)
+                    model_instance.set_scaler(scaler)
+                    print("归一化器已加载到天气预测模型")
+                else:
+                    print(f"未找到归一化器文件: {processed_data_path}")
+            except Exception as scaler_error:
+                print(f"加载归一化器时出错: {str(scaler_error)}")
+
             weather_model = model_instance
             return model_instance
         except Exception as e:

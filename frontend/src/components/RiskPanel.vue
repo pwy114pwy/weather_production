@@ -6,10 +6,10 @@
     <div class="data-source-selector">
       <h4>选择数据源</h4>
       <div class="selector-group">
-        <label>
+        <!-- <label>
           <input type="radio" v-model="selectedDataSource" value="cma" />
           国家气象中心(CMA)
-        </label>
+        </label> -->
         <label>
           <input type="radio" v-model="selectedDataSource" value="noaa" />
           NOAA(美国国家海洋和大气管理局)
@@ -41,7 +41,7 @@
 
     <!-- 时间范围选择 -->
     <div class="time-range-selector">
-      <h4>选择时间范围（时间差必须为7天）</h4>
+      <h4>选择时间范围</h4>
       <div class="time-selector-group">
         <div class="time-input-wrapper">
           <label>开始时间：</label>
@@ -52,7 +52,7 @@
           <input type="datetime-local" v-model="endTime" />
         </div>
       </div>
-      <p class="hint">注：选择开始时间后，结束时间会自动设置为7天后</p>
+      <!-- <p class="hint">注：选择开始时间后，结束时间会自动设置为7天后</p> -->
     </div>
 
     <!-- API密钥输入 -->
@@ -87,17 +87,17 @@ const isFetching = ref(false);
 const dataSourceInfo = ref('');
 
 // 数据源选择
-const selectedDataSource = ref('cma'); // 默认使用CMA数据源
+const selectedDataSource = ref('noaa'); // 默认使用CMA数据源
 
 // 城市选择
-const selectedCity = ref('北京'); // 默认选择北京
+const selectedCity = ref('纽约'); // 默认选择北京
 
 // API密钥
 const apiKey = ref(''); // API密钥，可选
 
 // 时间范围
-const startTime = ref(''); // 开始时间
-const endTime = ref(''); // 结束时间，与开始时间相差7天
+const startTime = ref('2024-01-01'); // 开始时间
+const endTime = ref('2024-03-01'); // 结束时间
 
 // 处理开始时间变化
 const handleStartTimeChange = () => {
