@@ -1,7 +1,9 @@
-from models.lstm_model import LSTMModel
-import numpy as np
-import sys
 import os
+import sys
+
+import numpy as np
+
+from models.lstm_model import LSTMModel
 
 # 添加项目根目录到Python路径
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
