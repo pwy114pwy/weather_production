@@ -5,7 +5,13 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import sys
 import os
 from pathlib import Path
+# 在evaluate_models.py文件的开头添加以下代码
+import matplotlib.pyplot as plt
+import matplotlib as mpl
 
+# 设置中文字体支持
+mpl.rcParams['font.sans-serif'] = ['SimHei']  # 使用黑体
+mpl.rcParams['axes.unicode_minus'] = False  # 解决负号显示问题
 # 添加项目根目录到Python路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
