@@ -198,31 +198,52 @@ def evaluate_models(num_samples=10, days=7):
         transformer_predictions = np.array(transformer_predictions)
         print(f"Transformer预测结果形状: {transformer_predictions.shape}")
     
-    # 5. 计算评估指标
-    print("\n[5/6] 计算评估指标...")
+    # 5. 反归一化预测结果和真实值
+    print("\n[5/6] 反归一化预测结果和真实值...")
+    
+    if scaler is not None:
+        print("使用scaler进行反归一化...")
+        
+        # 反归一化LSTM预测
+        if lstm_model is not None:
+            original_shape = lstm_predictions.shape
+            lstm_predictions_flat = lstm_predictions.reshape(-1, lstm_predictions.shape[-1])
+            lstm_predictions_denorm = scaler.inverse_transform(lstm_predictions_flat)
+            lstm_predictions = lstm_predictions_denorm.reshape(original_shape)
+            print(f"  LSTM预测已反归一化: {lstm_predictions.shape}")
+        
+        # 反归一化Transformer预测
+        if transformer_model is not None:
+            original_shape = transformer_predictions.shape
+            transformer_predictions_flat = transformer_predictions.reshape(-1, transformer_predictions.shape[-1])
+            transformer_predictions_denorm = scaler.inverse_transform(transformer_predictions_flat)
+            transformer_predictions = transformer_predictions_denorm.reshape(original_shape)
+            print(f"  Transformer预测已反归一化: {transformer_predictions.shape}")
+        
+        # 反归一化真实值
+        original_shape = y_weather_test_subset.shape
+        y_weather_test_flat = y_weather_test_subset.reshape(-1, y_weather_test_subset.shape[-1])
+        y_weather_test_denorm = scaler.inverse_transform(y_weather_test_flat)
+        y_weather_test_subset = y_weather_test_denorm.reshape(original_shape)
+        print(f"  真实值已反归一化: {y_weather_test_subset.shape}")
+        print("  ✓ 反归一化完成!")
+    else:
+        print("  ⚠ 警告: 未找到scaler,无法进行反归一化")
+        print("  评估指标可能不准确!")
+    
+    # 6. 计算评估指标
+    print("\n[6/6] 计算评估指标...")
     
     metrics = {}
     feature_names = ['降雨量', '持续时间', '风速', '平均温度', '最低温度', '最高温度']
     
     # 计算整体指标
     if lstm_model is not None:
-        # 根据y_weather_test的形状选择比较方式
-        if len(y_weather_test_subset.shape) == 3 and y_weather_test_subset.shape[1] == 1:
-            # 只比较最后一天的预测结果（测试集只包含1天）
-            lstm_pred_last_day = lstm_predictions[:, -1, :]
-            y_true_flat = y_weather_test_subset[:, 0, :]
-            lstm_pred_flat = lstm_pred_last_day
-        elif len(y_weather_test_subset.shape) == 2:
-            # 只比较最后一天的预测结果（2D数组）
-            lstm_pred_last_day = lstm_predictions[:, -1, :]
-            y_true_flat = y_weather_test_subset
-            lstm_pred_flat = lstm_pred_last_day
-        else:
-            # 比较所有天的预测结果
-            y_true_flat = y_weather_test_subset.reshape(-1, y_weather_test_subset.shape[-1])
-            lstm_pred_flat = lstm_predictions.reshape(-1, lstm_predictions.shape[-1])
+        # 简化逻辑:现在y_weather_test形状统一为(samples, days, features)
+        y_true_flat = y_weather_test_subset.reshape(-1, y_weather_test_subset.shape[-1])
+        lstm_pred_flat = lstm_predictions.reshape(-1, lstm_predictions.shape[-1])
         
-        # 检查形状是否匹配
+        # 验证形状匹配
         if y_true_flat.shape != lstm_pred_flat.shape:
             print(f"警告: LSTM预测数据形状不匹配")
             print(f"  真实值形状: {y_true_flat.shape}")
@@ -235,23 +256,11 @@ def evaluate_models(num_samples=10, days=7):
         metrics['lstm'] = calculate_metrics(y_true_flat, lstm_pred_flat)
     
     if transformer_model is not None:
-        # 根据y_weather_test的形状选择比较方式
-        if len(y_weather_test_subset.shape) == 3 and y_weather_test_subset.shape[1] == 1:
-            # 只比较最后一天的预测结果（测试集只包含1天）
-            transformer_pred_last_day = transformer_predictions[:, -1, :]
-            y_true_flat = y_weather_test_subset[:, 0, :]
-            transformer_pred_flat = transformer_pred_last_day
-        elif len(y_weather_test_subset.shape) == 2:
-            # 只比较最后一天的预测结果（2D数组）
-            transformer_pred_last_day = transformer_predictions[:, -1, :]
-            y_true_flat = y_weather_test_subset
-            transformer_pred_flat = transformer_pred_last_day
-        else:
-            # 比较所有天的预测结果
-            y_true_flat = y_weather_test_subset.reshape(-1, y_weather_test_subset.shape[-1])
-            transformer_pred_flat = transformer_predictions.reshape(-1, transformer_predictions.shape[-1])
+        # 简化逻辑:现在y_weather_test形状统一为(samples, days, features)
+        y_true_flat = y_weather_test_subset.reshape(-1, y_weather_test_subset.shape[-1])
+        transformer_pred_flat = transformer_predictions.reshape(-1, transformer_predictions.shape[-1])
         
-        # 检查形状是否匹配
+        # 验证形状匹配
         if y_true_flat.shape != transformer_pred_flat.shape:
             print(f"警告: Transformer预测数据形状不匹配")
             print(f"  真实值形状: {y_true_flat.shape}")
@@ -269,25 +278,13 @@ def evaluate_models(num_samples=10, days=7):
     
     for feature_idx, feature_name in enumerate(feature_names):
         if lstm_model is not None:
-            if len(y_weather_test_subset.shape) == 3 and y_weather_test_subset.shape[1] == 1:
-                # 只比较最后一天的预测结果（测试集只包含1天）
-                y_true_feature = y_weather_test_subset[:, 0, feature_idx]
-                lstm_pred_feature = lstm_predictions[:, -1, feature_idx]
-            elif len(y_weather_test_subset.shape) == 2:
-                # 只比较最后一天的预测结果（2D数组）
-                y_true_feature = y_weather_test_subset[:, feature_idx]
-                lstm_pred_feature = lstm_predictions[:, -1, feature_idx]
-            else:
-                # 比较所有天的预测结果
-                y_true_feature = y_weather_test_subset[:, :, feature_idx].flatten()
-                lstm_pred_feature = lstm_predictions[:, :, feature_idx].flatten()
+            # 简化逻辑:比较所有天的预测结果
+            y_true_feature = y_weather_test_subset[:, :, feature_idx].flatten()
+            lstm_pred_feature = lstm_predictions[:, :, feature_idx].flatten()
             
-            # 检查形状是否匹配
+            # 验证形状匹配
             if y_true_feature.shape != lstm_pred_feature.shape:
                 print(f"警告: {feature_name} LSTM特征数据形状不匹配")
-                print(f"  真实值形状: {y_true_feature.shape}")
-                print(f"  预测值形状: {lstm_pred_feature.shape}")
-                # 调整形状
                 min_samples = min(y_true_feature.shape[0], lstm_pred_feature.shape[0])
                 y_true_feature = y_true_feature[:min_samples]
                 lstm_pred_feature = lstm_pred_feature[:min_samples]
@@ -295,25 +292,13 @@ def evaluate_models(num_samples=10, days=7):
             metrics['lstm_per_feature'][feature_name] = calculate_metrics(y_true_feature, lstm_pred_feature)
         
         if transformer_model is not None:
-            if len(y_weather_test_subset.shape) == 3 and y_weather_test_subset.shape[1] == 1:
-                # 只比较最后一天的预测结果（测试集只包含1天）
-                y_true_feature = y_weather_test_subset[:, 0, feature_idx]
-                transformer_pred_feature = transformer_predictions[:, -1, feature_idx]
-            elif len(y_weather_test_subset.shape) == 2:
-                # 只比较最后一天的预测结果（2D数组）
-                y_true_feature = y_weather_test_subset[:, feature_idx]
-                transformer_pred_feature = transformer_predictions[:, -1, feature_idx]
-            else:
-                # 比较所有天的预测结果
-                y_true_feature = y_weather_test_subset[:, :, feature_idx].flatten()
-                transformer_pred_feature = transformer_predictions[:, :, feature_idx].flatten()
+            # 简化逻辑:比较所有天的预测结果
+            y_true_feature = y_weather_test_subset[:, :, feature_idx].flatten()
+            transformer_pred_feature = transformer_predictions[:, :, feature_idx].flatten()
             
-            # 检查形状是否匹配
+            # 验证形状匹配
             if y_true_feature.shape != transformer_pred_feature.shape:
                 print(f"警告: {feature_name} Transformer特征数据形状不匹配")
-                print(f"  真实值形状: {y_true_feature.shape}")
-                print(f"  预测值形状: {transformer_pred_feature.shape}")
-                # 调整形状
                 min_samples = min(y_true_feature.shape[0], transformer_pred_feature.shape[0])
                 y_true_feature = y_true_feature[:min_samples]
                 transformer_pred_feature = transformer_pred_feature[:min_samples]

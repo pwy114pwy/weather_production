@@ -276,8 +276,8 @@ class TransformerWeatherModel:
             dropout=0.2
         )(encoder_outputs)
         
-        # 解码器部分 - 固定为预测1天，通过递归预测生成多天结果
-        decoder_inputs = Input(shape=(1, self.output_features))
+        # 解码器部分 - 使用pred_days参数来设置预测天数
+        decoder_inputs = Input(shape=(self.pred_days, self.output_features))
         
         # 位置编码
         decoder_embedding = PositionalEncoding()(decoder_inputs)
@@ -285,12 +285,12 @@ class TransformerWeatherModel:
         # 将输入特征维度映射到d_model
         decoder_embedding = Dense(64, activation='relu')(decoder_embedding)
         
-        # 创建前瞻掩码，防止解码器看到未来的位置
+        # 创建前瞻掩码,防止解码器看到未来的位置
         def create_look_ahead_mask(size):
             mask = 1 - tf.linalg.band_part(tf.ones((size, size)), -1, 0)
             return mask  # (seq_len, seq_len)
         
-        look_ahead_mask = create_look_ahead_mask(1)
+        look_ahead_mask = create_look_ahead_mask(self.pred_days)
         
         # 解码器Transformer层
         decoder_outputs = TransformerDecoderLayer(

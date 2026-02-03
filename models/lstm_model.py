@@ -48,9 +48,14 @@ class LSTMModel:
 
     def train(self, X_train, y_train, X_val, y_val, epochs=50, batch_size=32):
         """训练模型"""
-        # 计算类别权重，处理类别不平衡
+        # 计算类别权重,处理类别不平衡
         class_counts = np.bincount(y_train.astype(int))
-        class_weights = {0: 1.0, 1: 2.0, 2: 3.0}  # 高风险类别权重更高
+        # 根据实际类别数量动态调整权重
+        num_classes = len(class_counts)
+        if num_classes == 2:
+            class_weights = {0: 1.0, 1: 9.0}  # 2分类:提高少数类权重
+        else:
+            class_weights = {0: 1.0, 1: 5.0, 2: 10.0}  # 3分类:高风险类别权重更高
 
         # 定义回调函数
         import os

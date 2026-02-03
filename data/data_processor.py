@@ -252,7 +252,7 @@ class DataProcessor:
 # 示例用法
 if __name__ == "__main__":
     # 初始化数据处理器
-    processor = DataProcessor(seq_length=6, pred_length=1)
+    processor = DataProcessor(seq_length=6, pred_length=7)  # 修改为7天预测
 
     # 加载数据（假设已经有原始数据文件）
     df = processor.load_data(

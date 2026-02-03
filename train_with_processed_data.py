@@ -57,10 +57,25 @@ def train_model_with_processed_data(data_file_path, architecture='lstm'):
 
         # 初始化模型
         input_shape = (X_train.shape[1], X_train.shape[2])  # (序列长度, 特征数)
-        num_classes = len(np.unique(np.concatenate(
-            [y_train, y_val, y_test])))  # 自动检测类别数量
-
-        print(f"输入形状: {input_shape}, 类别数量: {num_classes}")
+        
+        # 自动检测类别数量并验证
+        all_labels = np.concatenate([y_train, y_val, y_test])
+        unique_classes = np.unique(all_labels)
+        num_classes = len(unique_classes)
+        
+        print(f"输入形状: {input_shape}")
+        print(f"检测到的类别: {unique_classes}")
+        print(f"类别数量: {num_classes}")
+        
+        # 验证类别数量
+        if num_classes < 2:
+            raise ValueError(f"类别数量不足: {num_classes},至少需要2个类别")
+        
+        # 显示类别分布
+        unique_train, counts_train = np.unique(y_train, return_counts=True)
+        print(f"训练集类别分布:")
+        for label, count in zip(unique_train, counts_train):
+            print(f"  类别 {label}: {count} 个样本 ({count/len(y_train)*100:.2f}%)")
 
         # 根据架构选择初始化模型
         if architecture == 'transformer':
@@ -81,6 +96,8 @@ def train_model_with_processed_data(data_file_path, architecture='lstm'):
             
             # 根据架构选择初始化天气预测模型
             pred_days = y_weather_train.shape[1]  # 获取实际的预测天数
+            print(f"检测到预测天数: {pred_days}")
+            
             if architecture == 'transformer':
                 from models.transformer_weather_model import TransformerWeatherModel
                 weather_model = TransformerWeatherModel(
@@ -88,7 +105,7 @@ def train_model_with_processed_data(data_file_path, architecture='lstm'):
             else:  # 默认使用LSTM
                 from models.lstm_weather_model import LSTMWeatherModel
                 weather_model = LSTMWeatherModel(
-                    input_shape=input_shape, output_features=X_train.shape[2])
+                    input_shape=input_shape, output_features=X_train.shape[2], pred_days=pred_days)
 
             # 设置归一化器到模型（如果存在）
             if scaler is not None:
